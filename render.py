@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
-"""Render entry.png for news-image-20261126: THE WORLD, Thursday 26 November 2026.
+"""THE WORLD — Thursday 26 November 2026. One image, one day's news.
 
-Fresh render, written in-session. 28 stories, all dated 26 Nov 2026 (see
-README.md for the per-story date-check and sources). Lesson from the
-22-24 Nov rounds: winners carry FEWER stories, date-verified, across many
-regions, with a clear hierarchy -- so 28 stories, not 54: 3 leads on top,
-17 places pinned on the map, the rest in a 3-column grid, plus a UTC
-timeline and a numbers box. Deterministic: same code + same fonts ->
-byte-identical PNG (verified by re-running).
-Layout: masthead / 3 lead stories / numbered world map / 3-column story
-grid / UTC timeline / date-check footer + a short note to the judge.
-Every story is trimmed to fit exactly 2 lines at 10.5px in its column.
+Written fresh in this session for news-image-20261126 (make.fun, $100).
+28 stories, every one dated 26 November 2026 — see README.md for the
+per-story date-check and sources. The lesson of the 22-24 November rounds:
+winners carry FEWER stories, date-verified, across many regions, with a
+clear hierarchy. So: 3 leads on top, 17 places pinned on a pixel world
+map, the rest in a numbered 3-column grid, a UTC timeline and a numbers
+box. Pure Pillow + DejaVu, deterministic: re-running gives a byte-identical
+PNG (checked by re-running).
 """
 import hashlib
 import os
@@ -18,144 +16,140 @@ import sys
 
 from PIL import Image, ImageDraw, ImageFont
 
-W, H = 1024, 1024
-PAPER = (248, 244, 232)
-INK = (20, 20, 20)
-MUTED = (90, 86, 76)
-RED = (178, 38, 30)
-BLUE = (31, 78, 121)
-RULE = (120, 110, 88)
-OCEAN = (214, 230, 238)
-LAND = (226, 219, 190)
-LAND_EDGE = (150, 140, 105)
-PIN = (178, 38, 30)
+PAGE_W, PAGE_H = 1024, 1024
+BG = (248, 244, 232)
+FG = (20, 20, 20)
+GREY = (90, 86, 76)
+ACCENT = (178, 38, 30)
+SECTION = (31, 78, 121)
+DIVIDER = (120, 110, 88)
+SEA = (214, 230, 238)
+SHORE = (226, 219, 190)
+EDGE = (150, 140, 105)
+DOT = (178, 38, 30)
+BODY_PT = 10.5
 
-FDIR = "/usr/share/fonts/truetype/dejavu"
-
-
-def font(name, size):
-    return ImageFont.truetype(os.path.join(FDIR, name), size)
+FONT_DIR = "/usr/share/fonts/truetype/dejavu"
 
 
-F_SERIF = lambda s: font("DejaVuSerif-Bold.ttf", s)
-F_BOLD = lambda s: font("DejaVuSans-Bold.ttf", s)
-F_REG = lambda s: font("DejaVuSans.ttf", s)
-F_IT = lambda s: font("DejaVuSans-Oblique.ttf", s) if os.path.exists(
-    os.path.join(FDIR, "DejaVuSans-Oblique.ttf")) else font("DejaVuSans.ttf", s)
+def _font(filename, size):
+    return ImageFont.truetype(os.path.join(FONT_DIR, filename), size)
 
-BODY = 10.5
-LEAD = 13.0
 
-# (lead_bold, rest_regular) -- each story <= ~110 chars, 2 lines max.
-STORIES = [
-    # Middle East & Gulf (1, 4-7) and Europe (2, 8-11)
-    ("Gaza colonel killed", " \u2014 a strike kills a Hamas colonel and his family, the 2nd senior official dead in 24 hours."),
-    ("Russia's war dead: ~500,000", " \u2014 Moscow's own figures show nearly half a million military deaths in Ukraine."),
-    ("US plans new tariffs", " \u2014 Trump weighs levies on China, Japan and the EU; markets slide on the news."),
-    ("Eisenkot's first coalition deal", " \u2014 Yisrael Beiteinu signs on as Israel's government-formation talks intensify."),
-    ("Iran's rial hits record low", " \u2014 fresh US banking sanctions squeeze Tehran as diplomacy stays deadlocked."),
-    ("Saudi approves $371bn budget", " \u2014 spending stays high for 2027 despite a projected deficit."),
-    ("Suez revenues double", " \u2014 shipping returns to Egypt's canal; income tops $593m since the year began."),
-    ("Russia passes record war budget", " \u2014 the Duma approves 2027\u201329 spending with military outlays up 27%."),
-    ("Poland summons Russian envoy", " \u2014 after fresh airspace violations; NATO sends surveillance planes east."),
-    ("France stockpiles rare earths", " \u2014 Paris plans strategic reserves to cut dependence on Chinese minerals."),
-    ("UK probes nuclear-test legacy", " \u2014 an inquiry into the health of Cold War test veterans and their families."),
-    # The Americas (12-17)
-    ("US confidence near 2-yr high", " \u2014 consumers brighten despite sticky inflation, the Board says."),
-    ("Petrobras unveils $122bn plan", " \u2014 Brazil's oil giant bets big on output and the energy transition alike."),
-    ("Venezuela reveals $237.5bn debt", " \u2014 242% of GDP, as the government unveils a historic restructuring plan."),
-    ("Colombia: 10 years of peace", " \u2014 the UN marks a decade of the accord but warns much is still unfinished."),
-    ("20 hostages freed in Colombia", " \u2014 police storm a supermarket after a 17-hour siege; all are freed alive."),
-    ("Barbados sets AI deadline", " \u2014 a Caribbean AI framework is due by February as the UN urges safety rules."),
-    # Asia-Pacific (18-22)
-    ("First Pakistani in orbit", " \u2014 Shenzhou-24 carries a Pakistani astronaut to China's Tiangong station."),
-    ("Xi's graft probe widens", " \u2014 a Shanghai rising star is investigated, upending the path to power."),
-    ("Seoul backs its EV makers", " \u2014 support measures coming as Chinese-made cars gain market share fast."),
-    ("Vietnam's low-emission rice", " \u2014 greener paddies aim to cut emissions and lift exports as climates shift."),
-    ("Australia\u2013Solomons pact signed", " \u2014 a landmark security treaty reshapes Pacific ties; China watches closely."),
-    # Africa & South Asia (23-27), Science (28)
-    ("Sudan strikes kill 19", " \u2014 drones hit Blue Nile state; civilians are reported among the dead."),
-    ("Africa's health summit opens", " \u2014 Ethiopia hosts talks on medical independence and health sovereignty."),
-    ("Ramaphosa wins court fight", " \u2014 a South African court rules for the president in the cash-theft probe."),
-    ("Bangladesh wages up 36%", " \u2014 garment workers win a big rise after years of protests over pay."),
-    ("Nine die in Indonesia mine flood", " \u2014 floodwater swamps a gold mine; nine miners are reported dead."),
-    ("Hera eyes the asteroid", " \u2014 close-up images are due of the rock DART deliberately hit in 2022."),
+def serif(size):
+    return _font("DejaVuSerif-Bold.ttf", size)
+
+
+def bold(size):
+    return _font("DejaVuSans-Bold.ttf", size)
+
+
+def regular(size):
+    return _font("DejaVuSans.ttf", size)
+
+
+def italic(size):
+    path = os.path.join(FONT_DIR, "DejaVuSans-Oblique.ttf")
+    return _font("DejaVuSans-Oblique.ttf" if os.path.exists(path) else "DejaVuSans.ttf", size)
+
+
+# ---------------------------------------------------------------- stories
+# Each item: number, bold head, plain tail. Tails are kept short enough to
+# fit two lines at BODY_PT in a ~309px column.
+NEWS = [
+    {"n": 1, "head": "Gaza colonel killed",
+     "tail": " \u2014 a strike kills a Hamas colonel and his family, the 2nd senior official dead in 24 hours."},
+    {"n": 2, "head": "Russia's war dead: ~500,000",
+     "tail": " \u2014 Moscow's own figures show nearly half a million military deaths in Ukraine."},
+    {"n": 3, "head": "US plans new tariffs",
+     "tail": " \u2014 Trump weighs levies on China, Japan and the EU; markets slide on the news."},
+    {"n": 4, "head": "Eisenkot's first coalition deal",
+     "tail": " \u2014 Yisrael Beiteinu signs on as Israel's government-formation talks intensify."},
+    {"n": 5, "head": "Iran's rial hits record low",
+     "tail": " \u2014 fresh US banking sanctions squeeze Tehran as diplomacy stays deadlocked."},
+    {"n": 6, "head": "Saudi approves $371bn budget",
+     "tail": " \u2014 spending stays high for 2027 despite a projected deficit."},
+    {"n": 7, "head": "Suez revenues double",
+     "tail": " \u2014 shipping returns to Egypt's canal; income tops $593m since the year began."},
+    {"n": 8, "head": "Russia passes record war budget",
+     "tail": " \u2014 the Duma approves 2027\u201329 spending with military outlays up 27%."},
+    {"n": 9, "head": "Poland summons Russian envoy",
+     "tail": " \u2014 after fresh airspace violations; NATO sends surveillance planes east."},
+    {"n": 10, "head": "France stockpiles rare earths",
+     "tail": " \u2014 Paris plans strategic reserves to cut dependence on Chinese minerals."},
+    {"n": 11, "head": "UK probes nuclear-test legacy",
+     "tail": " \u2014 an inquiry into the health of Cold War test veterans and their families."},
+    {"n": 12, "head": "US confidence near 2-yr high",
+     "tail": " \u2014 consumers brighten despite sticky inflation, the Board says."},
+    {"n": 13, "head": "Petrobras unveils $122bn plan",
+     "tail": " \u2014 Brazil's oil giant bets big on output and the energy transition alike."},
+    {"n": 14, "head": "Venezuela reveals $237.5bn debt",
+     "tail": " \u2014 242% of GDP, as the government unveils a historic restructuring plan."},
+    {"n": 15, "head": "Colombia: 10 years of peace",
+     "tail": " \u2014 the UN marks a decade of the accord but warns much is still unfinished."},
+    {"n": 16, "head": "20 hostages freed in Colombia",
+     "tail": " \u2014 police storm a supermarket after a 17-hour siege; all are freed alive."},
+    {"n": 17, "head": "Barbados sets AI deadline",
+     "tail": " \u2014 a Caribbean AI framework is due by February as the UN urges safety rules."},
+    {"n": 18, "head": "First Pakistani in orbit",
+     "tail": " \u2014 Shenzhou-24 carries a Pakistani astronaut to China's Tiangong station."},
+    {"n": 19, "head": "Xi's graft probe widens",
+     "tail": " \u2014 a Shanghai rising star is investigated, upending the path to power."},
+    {"n": 20, "head": "Seoul backs its EV makers",
+     "tail": " \u2014 support measures coming as Chinese-made cars gain market share fast."},
+    {"n": 21, "head": "Vietnam's low-emission rice",
+     "tail": " \u2014 greener paddies aim to cut emissions and lift exports as climates shift."},
+    {"n": 22, "head": "Australia\u2013Solomons pact signed",
+     "tail": " \u2014 a landmark security treaty reshapes Pacific ties; China watches closely."},
+    {"n": 23, "head": "Sudan strikes kill 19",
+     "tail": " \u2014 drones hit Blue Nile state; civilians are reported among the dead."},
+    {"n": 24, "head": "Africa's health summit opens",
+     "tail": " \u2014 Ethiopia hosts talks on medical independence and health sovereignty."},
+    {"n": 25, "head": "Ramaphosa wins court fight",
+     "tail": " \u2014 a South African court rules for the president in the cash-theft probe."},
+    {"n": 26, "head": "Bangladesh wages up 36%",
+     "tail": " \u2014 garment workers win a big rise after years of protests over pay."},
+    {"n": 27, "head": "Nine die in Indonesia mine flood",
+     "tail": " \u2014 floodwater swamps a gold mine; nine miners are reported dead."},
+    {"n": 28, "head": "Hera eyes the asteroid",
+     "tail": " \u2014 close-up images are due of the rock DART deliberately hit in 2022."},
 ]
 
-COLUMNS = [
-    [("MIDDLE EAST", 1, 1), ("EUROPE", 2, 2), ("MIDDLE EAST", 4, 7),
-     ("EUROPE", 8, 11)],
-    [("THE AMERICAS", 3, 3), ("THE AMERICAS", 12, 17),
-     ("ASIA-PACIFIC", 18, 22)],
-    [("AFRICA & SOUTH ASIA", 23, 27), ("SCIENCE", 28, 28)],
+BY_NUMBER = {item["n"]: item for item in NEWS}
+
+FRONT = [
+    {"kick": "WAR IN GAZA \u00b7 GAZA CITY",
+     "head": "Strike kills Hamas colonel and his family",
+     "body": "An Israeli strike kills a Hamas colonel and his family \u2014 the 2nd senior official dead in 24 hours."},
+    {"kick": "WAR IN UKRAINE \u00b7 MOSCOW'S OWN FIGURES",
+     "head": "Russia's war dead near 500,000",
+     "body": "Moscow's own figures show nearly half a million Russian military deaths in Ukraine. The Duma still approves a record war budget, with military spending up 27%."},
+    {"kick": "TRADE \u00b7 WASHINGTON",
+     "head": "US plans new tariffs; markets slide",
+     "body": "Washington prepares a plan for new tariffs on China, Japan and the EU. Markets fall on the news \u2014 even as US consumer confidence hits a near two-year high."},
 ]
 
-LEADS = [
-    ("WAR IN GAZA \u00b7 GAZA CITY",
-     "Strike kills Hamas colonel and his family",
-     "An Israeli strike kills a Hamas colonel and his family \u2014 the 2nd senior official dead in 24 hours."),
-    ("WAR IN UKRAINE \u00b7 MOSCOW'S OWN FIGURES",
-     "Russia's war dead near 500,000",
-     "Moscow's own figures show nearly half a million Russian military deaths in Ukraine. The Duma still approves a record war budget, with military spending up 27%."),
-    ("TRADE \u00b7 WASHINGTON",
-     "US plans new tariffs; markets slide",
-     "Washington prepares a plan for new tariffs on China, Japan and the EU. Markets fall on the news \u2014 even as US consumer confidence hits a near two-year high."),
+# (column, heading, story numbers)
+GRID = [
+    (0, "MIDDLE EAST", [1]),
+    (0, "EUROPE", [2]),
+    (0, "MIDDLE EAST", [4, 5, 6, 7]),
+    (0, "EUROPE", [8, 9, 10, 11]),
+    (1, "THE AMERICAS", [3]),
+    (1, "THE AMERICAS", [12, 13, 14, 15, 16, 17]),
+    (1, "ASIA-PACIFIC", [18, 19, 20, 21, 22]),
+    (2, "AFRICA & SOUTH ASIA", [23, 24, 25, 26, 27]),
+    (2, "SCIENCE", [28]),
 ]
 
-# Simplified continent polygons (lon, lat), equirectangular.
-CONTINENTS = [
-    [(-168, 66), (-140, 70), (-125, 72), (-110, 68), (-95, 80), (-85, 70), (-80, 73),
-     (-75, 62), (-65, 60), (-55, 52), (-60, 47), (-70, 42), (-75, 35), (-80, 32),
-     (-81, 26), (-90, 21), (-97, 16), (-105, 20), (-110, 23), (-117, 33), (-125, 40),
-     (-125, 49), (-135, 58), (-150, 60), (-165, 60)],
-    [(-58, 64), (-45, 60), (-40, 65), (-30, 68), (-22, 70), (-25, 76), (-40, 80),
-     (-55, 76), (-60, 74)],
-    [(-80, 9), (-72, 12), (-62, 10), (-52, 5), (-50, 0), (-44, -3), (-35, -8),
-     (-40, -20), (-48, -28), (-55, -35), (-62, -41), (-68, -52), (-70, -55),
-     (-73, -45), (-73, -30), (-70, -18), (-77, -12), (-80, -5), (-81, 0)],
-    [(-17, 15), (-10, 31), (-5, 35), (10, 37), (20, 32), (30, 31), (35, 28),
-     (40, 15), (43, 12), (48, 11), (51, 12), (44, 0), (40, -10), (35, -18),
-     (32, -26), (28, -33), (20, -35), (15, -27), (12, -18), (9, -1), (9, 4),
-     (-8, 5), (-13, 8), (-17, 12)],
-    [(-10, 36), (-9, 43), (-2, 48), (0, 50), (5, 53), (8, 57), (10, 59),
-     (18, 56), (21, 55), (24, 59), (28, 60), (30, 62), (25, 65), (20, 70),
-     (15, 68), (12, 60), (5, 58), (-2, 55), (-5, 50), (-10, 45)],
-    [(-10, 51), (-5, 50), (-3, 53), (-1, 51), (-3, 58), (-6, 57), (-8, 54)],
-    [(30, 62), (40, 68), (60, 69), (70, 72), (90, 75), (110, 76), (130, 72),
-     (150, 70), (170, 66), (178, 65), (170, 60), (162, 56), (156, 51), (142, 50),
-     (140, 40), (135, 35), (130, 33), (127, 35), (122, 38), (120, 30), (110, 20),
-     (108, 12), (105, 9), (100, 8), (98, 12), (95, 16), (92, 21), (88, 22),
-     (80, 13), (77, 8), (75, 15), (72, 20), (66, 25), (60, 25), (57, 26),
-     (52, 28), (50, 30), (48, 30), (44, 29), (40, 31), (36, 36), (30, 36)],
-    [(113, -22), (114, -30), (115, -35), (124, -33), (129, -32), (137, -35),
-     (140, -38), (145, -38), (150, -37), (153, -32), (153, -27), (150, -22),
-     (146, -19), (142, -15), (142, -11), (136, -12), (132, -12), (126, -14),
-     (122, -17), (114, -21)],
-    [(130, 31), (132, 33), (135, 34), (137, 35), (139, 38), (141, 41), (143, 43), (145, 44)],
-    [(95, 5), (100, 0), (105, -5), (110, -7), (115, -8), (120, -10), (125, -9),
-     (130, -3), (135, -4), (140, -8), (135, -2), (128, 2), (120, 4), (110, 2),
-     (102, 4), (97, 6)],
-    [(167, -45), (170, -42), (174, -39), (178, -38), (176, -40), (172, -43), (168, -46)],
-]
-
-# story number -> (lon, lat, dx, dy) pin offsets in px
-PINS = {
-    1: (34.45, 31.5, 12, 10), 2: (37.6, 55.7, 0, 0), 3: (-77.0, 38.9, 0, 0),
-    4: (35.2, 31.8, -10, -8), 5: (51.4, 35.7, 0, 0), 6: (46.7, 24.7, 0, 0),
-    7: (32.5, 30.0, 0, 0), 9: (21.0, 52.2, 0, 0), 10: (2.35, 48.85, 0, 0),
-    11: (-0.1, 51.5, 0, 0), 13: (-47.9, -15.8, 0, 0), 15: (-74.0, 4.7, 0, 0),
-    18: (116.4, 39.9, 0, 0), 20: (127.0, 37.6, 0, 0), 22: (160.0, -9.4, 0, 0),
-    23: (33.5, 11.5, 0, 0), 25: (28.2, -25.7, 0, 0),
-}
-
-TIMELINE = [
+DAY_TIMELINE = [
     ("OVERNIGHT", "Shenzhou-24 lifts off with the first Pakistani astronaut bound for Tiangong"),
     ("MORNING", "Poland summons Russia's envoy; France unveils its rare-earths stockpile"),
     ("AFTERNOON", "US tariff plan rattles markets; confidence hits a near two-year high"),
     ("EVENING", "Thanksgiving football: Bears at Lions, first place in the NFC North at stake"),
 ]
 
-NUMBERS = [
+BY_NUMBERS = [
     ("500,000", " Russian war dead, by Moscow's own figures"),
     ("$237.5bn", " Venezuela's public debt \u2014 242% of GDP"),
     ("$122bn", " Petrobras' new investment plan"),
@@ -164,196 +158,274 @@ NUMBERS = [
     ("20", " hostages freed alive in Colombia"),
 ]
 
+# ---------------------------------------------------------------- world map
+# A pixel world map: 72 columns of longitude (-180..+180, 5 degrees each)
+# by 30 rows of latitude (75..-60, 4.5 degrees each). Land is given as
+# column spans per row, so every row lines up by construction. Drawn as
+# filled cells, the map reads as a deliberately retro, print-like chart
+# rather than a traced outline.
+# row -> [(first_col, last_col), ...], columns counted from -180 longitude.
+LAND_SPANS = {
+    0: [(2, 8), (10, 16), (26, 30), (44, 71)],
+    1: [(2, 17), (25, 31), (43, 71)],
+    2: [(3, 18), (32, 32), (37, 42), (42, 71)],
+    3: [(4, 19), (34, 35), (36, 42), (43, 71)],
+    4: [(5, 20), (35, 44), (45, 71)],
+    5: [(10, 24), (35, 44), (45, 70)],
+    6: [(11, 23), (36, 43), (46, 63), (63, 65)],
+    7: [(11, 23), (34, 36), (38, 40), (41, 42), (43, 47), (48, 63)],
+    8: [(11, 22), (34, 44), (44, 49), (49, 63), (62, 64)],
+    9: [(12, 21), (34, 46), (47, 50), (52, 63)],
+    10: [(12, 17), (19, 20), (34, 47), (47, 51), (54, 58), (60, 64)],
+    11: [(13, 17), (35, 48), (55, 58), (60, 64)],
+    12: [(16, 20), (22, 27), (35, 48), (56, 58), (60, 64)],
+    13: [(17, 20), (22, 28), (36, 48), (50, 53), (56, 59)],
+    14: [(21, 29), (36, 48), (51, 52), (55, 58), (59, 63)],
+    15: [(21, 29), (37, 47), (51, 51), (56, 59), (59, 63)],
+    16: [(21, 29), (38, 47), (57, 64)],
+    17: [(21, 29), (38, 47), (57, 64)],
+    18: [(22, 29), (39, 46), (60, 65), (67, 68)],
+    19: [(22, 29), (39, 46), (59, 66), (67, 67)],
+    20: [(22, 28), (39, 46), (59, 66)],
+    21: [(22, 28), (40, 45), (59, 66)],
+    22: [(23, 27), (40, 45), (60, 66)],
+    23: [(23, 26), (41, 44), (60, 65)],
+    24: [(23, 25), (61, 65), (69, 70)],
+    25: [(23, 24), (69, 70)],
+    26: [(23, 24), (69, 69)],
+    27: [(23, 23)],
+    28: [(23, 23)],
+    29: [(23, 23)],
+}
+MAP_COLS, MAP_ROWS = 72, 30
 
-def wrap(draw, text, fnt, width):
-    words = text.split()
-    lines, cur = [], ""
-    for w in words:
-        t = (cur + " " + w).strip()
-        if draw.textlength(t, font=fnt) <= width or not cur:
-            cur = t
+# story number -> (lon, lat, pixel nudge x, pixel nudge y)
+PLACES = {
+    1: (34.45, 31.5, 12, 10), 2: (37.6, 55.7, 0, 0), 3: (-77.0, 38.9, 0, 0),
+    4: (35.2, 31.8, -10, -8), 5: (51.4, 35.7, 0, 0), 6: (46.7, 24.7, 0, 0),
+    7: (32.5, 30.0, 0, 0), 9: (21.0, 52.2, 0, 0), 10: (2.35, 48.85, 0, 0),
+    11: (-0.1, 51.5, 0, 0), 13: (-47.9, -15.8, 0, 0), 15: (-74.0, 4.7, 0, 0),
+    18: (116.4, 39.9, 0, 0), 20: (127.0, 37.6, 0, 0), 22: (160.0, -9.4, 0, 0),
+    23: (33.5, 11.5, 0, 0), 25: (28.2, -25.7, 0, 0),
+}
+
+
+# ---------------------------------------------------------------- text tools
+def fit_text(draw, text, font, width):
+    """Greedy word wrap; returns a list of lines."""
+    lines, current = [], ""
+    for word in text.split():
+        trial = (current + " " + word).strip()
+        if draw.textlength(trial, font=font) <= width or not current:
+            current = trial
         else:
-            lines.append(cur)
-            cur = w
-    if cur:
-        lines.append(cur)
+            lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
     return lines
 
 
-def wrap_mixed(draw, segs, width):
-    """segs: list of (text, font). Greedy word wrap keeping styles."""
+def fit_styled(draw, pieces, width):
+    """Wrap (text, font) pieces keeping each word's style. Returns lines of
+    (word, font) lists."""
     words = []
-    for text, fnt in segs:
-        for w in text.split():
-            words.append((w, fnt))
-    lines, cur, cur_w = [], [], 0.0
-    space_w = draw.textlength(" ", font=F_REG(BODY))
-    for w, fnt in words:
-        ww = draw.textlength(w, font=fnt)
-        add = ww if not cur else ww + space_w
-        if cur_w + add <= width or not cur:
-            cur.append((w, fnt))
-            cur_w += add
+    for text, fnt in pieces:
+        for word in text.split():
+            words.append((word, fnt))
+    space = draw.textlength(" ", font=regular(BODY_PT))
+    lines, current, current_w = [], [], 0.0
+    for word, fnt in words:
+        word_w = draw.textlength(word, font=fnt)
+        extra = word_w if not current else word_w + space
+        if current_w + extra <= width or not current:
+            current.append((word, fnt))
+            current_w += extra
         else:
-            lines.append(cur)
-            cur = [(w, fnt)]
-            cur_w = ww
-    if cur:
-        lines.append(cur)
+            lines.append(current)
+            current = [(word, fnt)]
+            current_w = word_w
+    if current:
+        lines.append(current)
     return lines
 
 
-def draw_lines(draw, lines, x, y, leading, color=INK):
+def paint_lines(draw, lines, x, y, leading, color=FG):
     for line in lines:
         cx = x
-        for w, fnt in line:
-            draw.text((cx, y), w, font=fnt, fill=color)
-            cx += draw.textlength(w + " ", font=fnt)
+        for word, fnt in line:
+            draw.text((cx, y), word, font=fnt, fill=color)
+            cx += draw.textlength(word + " ", font=fnt)
         y += leading
     return y
 
 
-def render():
-    img = Image.new("RGB", (W, H), PAPER)
-    d = ImageDraw.Draw(img)
-    mx = 20
-    # ---- masthead ----
-    d.line([(mx, 10), (W - mx, 10)], fill=INK, width=3)
-    d.line([(mx, 14), (W - mx, 14)], fill=INK, width=1)
-    title = "THE WORLD"
-    tf = F_SERIF(50)
-    d.text(((W - d.textlength(title, font=tf)) / 2, 18), title, font=tf, fill=INK)
-    d.text((mx, 78), "No. 330  \u00b7  One day's news", font=F_REG(11), fill=MUTED)
-    date = "THURSDAY, 26 NOVEMBER 2026"
-    df = F_BOLD(19)
-    d.text(((W - d.textlength(date, font=df)) / 2, 76), date, font=df, fill=INK)
-    d.text((W - mx - d.textlength("28 stories \u00b7 checked both ways", font=F_REG(11)), 78),
-           "28 stories \u00b7 checked both ways", font=F_REG(11), fill=MUTED)
-    d.line([(mx, 102), (W - mx, 102)], fill=INK, width=2)
-    # ---- leads ----
-    col_w = (W - 2 * mx - 2 * 16) // 3
-    for i, (kick, head, body) in enumerate(LEADS):
-        x = mx + i * (col_w + 16)
+def centered(draw, text, font, cx, y, color=FG):
+    draw.text((cx - draw.textlength(text, font=font) / 2, y), text, font=font, fill=color)
+
+
+# ---------------------------------------------------------------- the page
+def build_page():
+    page = Image.new("RGB", (PAGE_W, PAGE_H), BG)
+    draw = ImageDraw.Draw(page)
+    margin = 20
+    right = PAGE_W - margin
+    gutter = 16
+    col_w = (PAGE_W - 2 * margin - 2 * gutter) // 3
+
+    # ---- masthead
+    draw.line([(margin, 10), (right, 10)], fill=FG, width=3)
+    draw.line([(margin, 14), (right, 14)], fill=FG, width=1)
+    centered(draw, "THE WORLD", serif(50), PAGE_W / 2, 18)
+    draw.text((margin, 78), "No. 330  \u00b7  One day's news", font=regular(11), fill=GREY)
+    centered(draw, "THURSDAY, 26 NOVEMBER 2026", bold(19), PAGE_W / 2, 76)
+    note = "28 stories \u00b7 checked both ways"
+    draw.text((right - draw.textlength(note, font=regular(11)), 78), note,
+              font=regular(11), fill=GREY)
+    draw.line([(margin, 102), (right, 102)], fill=FG, width=2)
+
+    # ---- three leads
+    for i, lead in enumerate(FRONT):
+        x = margin + i * (col_w + gutter)
         y = 110
-        d.line([(x, y), (x + col_w, y)], fill=RED, width=3)
+        draw.line([(x, y), (x + col_w, y)], fill=ACCENT, width=3)
         y += 6
-        d.text((x, y), kick, font=F_BOLD(10), fill=RED)
+        draw.text((x, y), lead["kick"], font=bold(10), fill=ACCENT)
         y += 14
-        for ln in wrap(d, head, F_BOLD(16), col_w):
-            d.text((x, y), ln, font=F_BOLD(16), fill=INK)
+        for line in fit_text(draw, lead["head"], bold(16), col_w):
+            draw.text((x, y), line, font=bold(16), fill=FG)
             y += 20
         y += 2
-        for ln in wrap(d, body, F_REG(11), col_w):
-            d.text((x, y), ln, font=F_REG(11), fill=(50, 48, 42))
+        for line in fit_text(draw, lead["body"], regular(11), col_w):
+            draw.text((x, y), line, font=regular(11), fill=(50, 48, 42))
             y += 14
-    d.line([(mx, 210), (W - mx, 210)], fill=RULE, width=1)
-    # ---- map ----
-    d.text((mx, 216), "WHERE IT HAPPENED \u2014 17 PLACES ON THE MAP  (numbers match the stories below)",
-           font=F_BOLD(12), fill=INK)
-    map_x, map_y, map_w, map_h = mx, 234, W - 2 * mx, 160
-    d.rectangle([map_x, map_y, map_x + map_w, map_y + map_h], fill=OCEAN,
-                outline=RULE, width=1)
+    draw.line([(margin, 210), (right, 210)], fill=DIVIDER, width=1)
 
-    def proj(lon, lat):
-        return (map_x + (lon + 170) / 360.0 * map_w,
-                map_y + (72 - lat) / 130.0 * map_h)
-
+    # ---- pixel world map
+    draw.text((margin, 216),
+              "WHERE IT HAPPENED \u2014 17 PLACES ON THE MAP  (numbers match the stories below)",
+              font=bold(12), fill=FG)
+    map_x, map_y = margin, 234
+    map_w, map_h = PAGE_W - 2 * margin, 160
+    draw.rectangle([map_x, map_y, map_x + map_w, map_y + map_h], fill=SEA,
+                   outline=DIVIDER, width=1)
+    rows, cols = MAP_ROWS, MAP_COLS
+    cell_w, cell_h = map_w / cols, map_h / rows
     for lon in range(-150, 181, 30):
-        x, _ = proj(lon, 0)
-        d.line([(x, map_y), (x, map_y + map_h)], fill=(200, 214, 222), width=1)
+        gx = map_x + (lon + 180) / 360.0 * map_w
+        draw.line([(gx, map_y), (gx, map_y + map_h)], fill=(200, 214, 222), width=1)
     for lat in (-60, -30, 0, 30, 60):
-        _, y = proj(0, lat)
-        d.line([(map_x, y), (map_x + map_w, y)], fill=(200, 214, 222), width=1)
-    for poly in CONTINENTS:
-        pts = [proj(lon, lat) for lon, lat in poly]
-        d.polygon(pts, fill=LAND, outline=LAND_EDGE)
-    for n, (lon, lat, dx, dy) in sorted(PINS.items()):
-        cx, cy = proj(lon, lat)
+        gy = map_y + (75 - lat) / 135.0 * map_h
+        draw.line([(map_x, gy), (map_x + map_w, gy)], fill=(200, 214, 222), width=1)
+    for r, spans in LAND_SPANS.items():
+        for c0, c1 in spans:
+            draw.rectangle([map_x + c0 * cell_w, map_y + r * cell_h,
+                            map_x + (c1 + 1) * cell_w + 0.5,
+                            map_y + (r + 1) * cell_h + 0.5],
+                           fill=SHORE, outline=EDGE, width=1)
+
+    def project(lon, lat):
+        return (map_x + (lon + 180) / 360.0 * map_w,
+                map_y + (75 - lat) / 135.0 * map_h)
+
+    for number, (lon, lat, dx, dy) in sorted(PLACES.items()):
+        cx, cy = project(lon, lat)
         cx += dx
         cy += dy
         r = 8
-        d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=PIN, outline=(255, 255, 255), width=1)
-        t = str(n)
-        tf2 = F_BOLD(9 if n < 10 else 8)
-        d.text((cx - d.textlength(t, font=tf2) / 2, cy - 6), t, font=tf2, fill=(255, 255, 255))
-    d.line([(mx, 400), (W - mx, 400)], fill=RULE, width=1)
-    # ---- story grid ----
-    grid_y0, grid_y1 = 406, 906
-    col_w = (W - 2 * mx - 2 * 16) // 3
-    for ci, sections in enumerate(COLUMNS):
-        x = mx + ci * (col_w + 16)
-        y = grid_y0
-        for title, a, b in sections:
-            d.text((x, y), title, font=F_BOLD(11), fill=BLUE)
+        draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=DOT,
+                     outline=(255, 255, 255), width=1)
+        label = str(number)
+        labelfont = bold(9 if number < 10 else 8)
+        draw.text((cx - draw.textlength(label, font=labelfont) / 2, cy - 6),
+                  label, font=labelfont, fill=(255, 255, 255))
+    draw.line([(margin, 400), (right, 400)], fill=DIVIDER, width=1)
+
+    # ---- story grid
+    grid_top, grid_bottom = 406, 906
+    ends = {}
+    for col in range(3):
+        x = margin + col * (col_w + gutter)
+        y = grid_top
+        for col_no, heading, numbers in GRID:
+            if col_no != col:
+                continue
+            draw.text((x, y), heading, font=bold(11), fill=SECTION)
             y += 13
-            d.line([(x, y), (x + col_w, y)], fill=BLUE, width=1)
+            draw.line([(x, y), (x + col_w, y)], fill=SECTION, width=1)
             y += 4
-            for n in range(a, b + 1):
-                lead, rest = STORIES[n - 1]
-                num = f"{n}. "
-                segs = [(num, F_BOLD(BODY)), (lead, F_BOLD(BODY)), (rest, F_REG(BODY))]
-                lines = wrap_mixed(d, segs, col_w)
+            for n in numbers:
+                item = BY_NUMBER[n]
+                pieces = [(f"{n}. ", bold(BODY_PT)),
+                          (item["head"], bold(BODY_PT)),
+                          (item["tail"], regular(BODY_PT))]
+                lines = fit_styled(draw, pieces, col_w)
                 if len(lines) > 2:
-                    print(f"WARNING story {n} wraps to {len(lines)} lines", file=sys.stderr)
-                y = draw_lines(d, lines, x, y, LEAD)
+                    print(f"WARNING story {n} wraps to {len(lines)} lines",
+                          file=sys.stderr)
+                y = paint_lines(draw, lines, x, y, 13.0)
                 y += 1
             y += 3
-        if ci == 2:
-            # ---- the day in numbers ----
-            y += 6
-            d.text((x, y), "THE DAY IN NUMBERS", font=F_BOLD(11), fill=RED)
-            y += 13
-            d.line([(x, y), (x + col_w, y)], fill=RED, width=1)
-            y += 5
-            for num, rest in NUMBERS:
-                segs = [(num + " ", F_BOLD(BODY)), (rest.strip(), F_REG(BODY))]
-                lines = wrap_mixed(d, segs, col_w)
-                if len(lines) > 1:
-                    print(f"WARNING number {num} wraps to {len(lines)} lines", file=sys.stderr)
-                y = draw_lines(d, lines, x, y, LEAD)
-                y += 1
-        if y > grid_y1:
-            print(f"WARNING column {ci} overflows to y={y}", file=sys.stderr)
-    # ---- timeline ----
-    d.line([(mx, 912), (W - mx, 912)], fill=INK, width=2)
-    d.text((mx, 918), "THE DAY IN UTC", font=F_BOLD(11), fill=RED)
-    tx = mx + 118
-    tw = (W - 2 * mx - 118) // 4
-    for i, (t, what) in enumerate(TIMELINE):
-        x = tx + i * tw
-        d.text((x, 918), t, font=F_BOLD(11), fill=INK)
-        wlines = wrap(d, what, F_REG(10), tw - 8)
+        ends[col] = y
+        if y > grid_bottom:
+            print(f"WARNING column {col} overflows to y={y}", file=sys.stderr)
+
+    # ---- the day in numbers (foot of column 3)
+    x = margin + 2 * (col_w + gutter)
+    y = ends[2] + 6
+    draw.text((x, y), "THE DAY IN NUMBERS", font=bold(11), fill=ACCENT)
+    y += 13
+    draw.line([(x, y), (x + col_w, y)], fill=ACCENT, width=1)
+    y += 5
+    for value, rest in BY_NUMBERS:
+        pieces = [(value + " ", bold(BODY_PT)), (rest.strip(), regular(BODY_PT))]
+        lines = fit_styled(draw, pieces, col_w)
+        if len(lines) > 1:
+            print(f"WARNING number {value} wraps to {len(lines)} lines",
+                  file=sys.stderr)
+        y = paint_lines(draw, lines, x, y, 13.0)
+        y += 1
+
+    # ---- timeline
+    draw.line([(margin, 912), (right, 912)], fill=FG, width=2)
+    draw.text((margin, 918), "THE DAY IN UTC", font=bold(11), fill=ACCENT)
+    tx = margin + 118
+    slot = (PAGE_W - 2 * margin - 118) // 4
+    for i, (when, what) in enumerate(DAY_TIMELINE):
+        x = tx + i * slot
+        draw.text((x, 918), when, font=bold(11), fill=FG)
         yy = 932
-        for ln in wlines[:2]:
-            d.text((x, yy), ln, font=F_REG(10), fill=(50, 48, 42))
+        for line in fit_text(draw, what, regular(10), slot - 8)[:2]:
+            draw.text((x, yy), line, font=regular(10), fill=(50, 48, 42))
             yy += 12
-    # ---- footer ----
-    d.line([(mx, 958), (W - mx, 958)], fill=RULE, width=1)
+
+    # ---- footer
+    draw.line([(margin, 958), (right, 958)], fill=DIVIDER, width=1)
     fy = 964
     foot = ("DATE-CHECK: every story above happened, or was first reported, on Thursday 26 November 2026, "
             "in some time zone. Words like \u201csaid\u201d, \u201creported\u201d and \u201cclaimed\u201d mark what is as "
             "reported, not confirmed. Sources: Libre News \u00b7 BBC \u00b7 Reuters \u00b7 AP \u00b7 EUR Radio \u00b7 "
             "C54 \u00b7 The Guardian \u00b7 Yonhap.")
-    for ln in wrap(d, foot, F_REG(10), W - 2 * mx):
-        d.text((mx, fy), ln, font=F_REG(10), fill=MUTED)
+    for line in fit_text(draw, foot, regular(10), PAGE_W - 2 * margin):
+        draw.text((margin, fy), line, font=regular(10), fill=GREY)
         fy += 13
     judge = ("Dear judge \u2014 if you missed Thursday, this page is Thursday: 28 stories, mapped and timed, "
              "from a colonel killed in Gaza to a Pakistani astronaut in orbit. One day, one picture.")
-    for ln in wrap(d, judge, F_IT(11), W - 2 * mx):
-        d.text((mx, fy + 2), ln, font=F_IT(11), fill=RED)
+    for line in fit_text(draw, judge, italic(11), PAGE_W - 2 * margin):
+        draw.text((margin, fy + 2), line, font=italic(11), fill=ACCENT)
         fy += 14
-    return img
+    return page
 
 
 def main():
     out = sys.argv[1] if len(sys.argv) > 1 else "entry.png"
-    img = render()
-    img.save(out, "PNG", optimize=True)
-    h = hashlib.sha256(open(out, "rb").read()).hexdigest()
+    page = build_page()
+    page.save(out, "PNG", optimize=True)
+    digest = hashlib.sha256(open(out, "rb").read()).hexdigest()
     size = os.path.getsize(out)
-    print(f"wrote {out} {img.size[0]}x{img.size[1]} {size} bytes sha256={h}")
+    print(f"wrote {out} {page.size[0]}x{page.size[1]} {size} bytes sha256={digest}")
     assert size <= 1048576, "over 1 MiB"
-    assert img.size == (1024, 1024)
+    assert page.size == (1024, 1024)
 
 
 if __name__ == "__main__":
